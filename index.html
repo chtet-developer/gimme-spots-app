@@ -168,6 +168,8 @@ let map, userMarker, userLat = null, userLon = null, activeTab = 'map', activeTy
 let markers = [];
 let sheetPlace = null;
 let geolocating = false;
+let geocodeRunning = false;
+let geocodeAbort = false;
 
 function loadPlaces(){
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
@@ -348,6 +350,74 @@ function placeCardHTML(p){
 function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escapeAttr(s){ return escapeHTML(s).replace(/`/g,'&#96;'); }
 
+function extractCoordsFromUrl(url){
+  const u = String(url || '');
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+    /q=(-?\d+(?:\.\d+)?)%2C(-?\d+(?:\.\d+)?)/
+  ];
+  for (const re of patterns) {
+    const m = u.match(re);
+    if (m) return { lat: Number(m[1]), lon: Number(m[2]) };
+  }
+  return null;
+}
+
+async function geocodePlace(place){
+  if (place.lat != null && place.lon != null) return true;
+  const fromUrl = extractCoordsFromUrl(place.url);
+  if (fromUrl) {
+    place.lat = fromUrl.lat;
+    place.lon = fromUrl.lon;
+    return true;
+  }
+
+  const query = [place.name, place.note, place.comment, place.tags].filter(Boolean).join(' ').trim();
+  if (!query) return false;
+
+  try {
+    const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(query);
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length) {
+      place.lat = Number(data[0].lat);
+      place.lon = Number(data[0].lon);
+      return true;
+    }
+  } catch (err) {
+    console.warn('Geocode failed', place.name, err);
+  }
+  return false;
+}
+
+async function geocodeMissingPlaces(){
+  if (geocodeRunning) return;
+  geocodeRunning = true;
+  const missing = places.filter(p => p.lat == null || p.lon == null);
+  if (!missing.length) { geocodeRunning = false; return; }
+  document.getElementById('foot').textContent = `Finding coordinates for ${missing.length} places...`;
+  for (let i = 0; i < missing.length; i++) {
+    if (geocodeAbort) break;
+    const p = missing[i];
+    const ok = await geocodePlace(p);
+    if (ok) {
+      savePlaces();
+      if (activeTab === 'map') {
+        renderMarkers();
+      }
+      renderList();
+      updateCounts();
+    }
+    document.getElementById('foot').textContent = `Finding coordinates... ${i + 1}/${missing.length}`;
+    await new Promise(r => setTimeout(r, 1100));
+  }
+  geocodeRunning = false;
+  document.getElementById('foot').textContent = `Your data is saved in this browser, so you only import once.`;
+  renderAll();
+}
+
 function initMap(){
   if (map) return;
   map = L.map('map', { zoomControl: true }).setView([34.05, -118.24], 11);
@@ -465,6 +535,7 @@ function doImport(){
     msg.textContent = `Saved ${places.length} places.`;
     importModal(false);
     renderAll();
+    geocodeMissingPlaces();
     toast('Places saved');
   };
   if (txt) return finish(txt);
@@ -498,6 +569,7 @@ updateLocationState();
 updateCounts();
 if (places.length) {
   renderAll();
+  geocodeMissingPlaces();
 } else {
   setTimeout(() => importModal(true), 250);
 }
