@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>My Places</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg:#f7f5f0; --card:#ffffff; --text:#181613; --muted:#6d675f; --line:#ddd7cc;
+    --green:#2d5a3d; --green2:#1f412d; --sand:#f0ede6; --sand2:#e8e1d4; --gold:#8a5a1a;
+    --shadow:0 10px 30px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box} html,body{height:100%} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  button,input,select{font:inherit}
+  .app{height:100%;display:flex;flex-direction:column}
+  .topbar{display:flex;gap:.75rem;align-items:center;padding:12px 14px;background:rgba(255,255,255,.92);backdrop-filter:saturate(180%) blur(18px);border-bottom:1px solid rgba(0,0,0,.06)}
+  .brand{display:flex;align-items:center;gap:.65rem;min-width:0;flex:1}
+  .pin{width:18px;height:18px;border-radius:50% 50% 50% 0;background:var(--green);transform:rotate(-45deg);flex:none;position:relative}
+  .pin:after{content:"";position:absolute;inset:5px;background:#fff;border-radius:50%}
+  .brand h1{font-size:17px;line-height:1;margin:0}
+  .brand p{font-size:12px;color:var(--muted);margin:2px 0 0}
+  .iconbtn{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 12px;color:var(--text)}
+  .iconbtn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+  .toolbar{display:flex;gap:8px;overflow:auto;padding:10px 12px;background:#fff;border-bottom:1px solid rgba(0,0,0,.06)}
+  .chip{border:1px solid var(--line);background:var(--sand);color:#5d564e;border-radius:999px;padding:8px 11px;white-space:nowrap}
+  .chip.on{background:var(--green);border-color:var(--green);color:#fff}
+  .tabs{display:flex;gap:8px;padding:10px 12px;background:#fff;border-bottom:1px solid rgba(0,0,0,.06)}
+  .tab{flex:1;border:1px solid var(--line);border-radius:14px;padding:11px 10px;background:var(--sand);font-weight:650;color:#5d564e}
+  .tab.on{background:var(--green);border-color:var(--green);color:#fff}
+  .searchrow{display:flex;gap:8px;padding:10px 12px;background:#fff;border-bottom:1px solid rgba(0,0,0,.06)}
+  .searchrow input,.searchrow select{flex:1;border:1px solid var(--line);border-radius:14px;padding:11px 12px;background:#fff;min-width:0}
+  .searchrow select{flex:0 0 124px}
+  .status{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;font-size:12px;color:var(--muted);background:#fff;border-bottom:1px solid rgba(0,0,0,.06)}
+  .content{flex:1;min-height:0;display:flex;flex-direction:column}
+  #map{flex:1;min-height:0}
+  .list{display:none;flex:1;overflow:auto;padding:10px 12px 90px}
+  .list.on{display:block}
+  .mapview{display:flex;flex:1;flex-direction:column}
+  .mapview.on{display:flex}
+  .place{background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:18px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow)}
+  .placehead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .placetitle{font-weight:750;font-size:16px;line-height:1.25;margin:0}
+  .distance{font-size:12px;color:var(--green);font-weight:650;white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .tag{font-size:11px;border-radius:999px;padding:4px 9px;background:var(--sand);color:#625a52;border:1px solid rgba(0,0,0,.05)}
+  .tag.type{background:#e8f0eb;color:var(--green2)}
+  .tag.cuisine{background:#fdf3e3;color:var(--gold)}
+  .tag.free{background:#e8f0eb;color:var(--green2)}
+  .tag.price{background:#eef2ff;color:#3730a3}
+  .blurb{margin-top:10px;color:#5f5a54;font-size:13px;line-height:1.5}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .smallbtn{border:1px solid var(--line);border-radius:999px;padding:8px 12px;background:#fff}
+  .smallbtn.primary{background:var(--green);border-color:var(--green);color:#fff}
+  .sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.16);transform:translateY(102%);transition:transform .25s ease;z-index:50;max-height:72vh;overflow:auto}
+  .sheet.on{transform:translateY(0)}
+  .handle{width:38px;height:4px;border-radius:999px;background:#ddd;margin:10px auto 0}
+  .sheetinner{padding:12px 16px 20px}
+  .sheettitle{font-size:20px;font-weight:800;margin:6px 0 4px}
+  .sheetdist{color:var(--green);font-weight:700;font-size:13px;margin-bottom:10px}
+  .sheetnote{color:#5f5a54;font-size:13px;line-height:1.5;margin-top:10px}
+  .muted{color:var(--muted)}
+  .modalbackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:60}
+  .modalbackdrop.on{display:block}
+  .modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,540px);background:#fff;border-radius:20px;box-shadow:var(--shadow);padding:16px;display:none;z-index:70}
+  .modal.on{display:block}
+  .modal h2{margin:0 0 10px;font-size:18px}
+  .modal p{margin:8px 0;color:var(--muted);font-size:13px;line-height:1.45}
+  .modal textarea,.modal input{width:100%;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font:inherit;background:#fff}
+  .modal .row{display:flex;gap:8px;margin-top:10px}
+  .modal .row > *{flex:1}
+  .progress{height:6px;background:#eadfcf;border-radius:999px;overflow:hidden;margin-top:8px}
+  .bar{height:100%;width:0;background:var(--green);transition:width .2s}
+  .foot{padding:8px 12px 14px;color:var(--muted);font-size:12px;text-align:center}
+  .fab{position:fixed;right:14px;bottom:18px;width:52px;height:52px;border:none;border-radius:50%;background:var(--green);color:#fff;font-size:20px;box-shadow:var(--shadow);z-index:40}
+  .hidden{display:none !important}
+  @media(min-width:900px){ .content{max-width:960px;margin:0 auto;width:100%} #map{border-radius:0 0 20px 20px;overflow:hidden} }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="pin"></div>
+      <div>
+        <h1>My Places</h1>
+        <p id="subtitle">Saved places on a map and a fast “go now” list</p>
+      </div>
+    </div>
+    <button class="iconbtn" id="locBtn">📍</button>
+    <button class="iconbtn primary" id="importBtn">Import</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-tab="map">Map</button>
+    <button class="tab" data-tab="go">Go now</button>
+  </div>
+
+  <div class="searchrow">
+    <input id="search" placeholder="Search places" />
+    <select id="sort">
+      <option value="distance">Nearest</option>
+      <option value="type">Type</option>
+      <option value="cuisine">Cuisine</option>
+      <option value="price">Price</option>
+      <option value="name">Name</option>
+    </select>
+  </div>
+
+  <div class="toolbar" id="filters"></div>
+  <div class="status">
+    <div id="count">0 places</div>
+    <div id="locState">Location off</div>
+  </div>
+
+  <div class="content">
+    <div class="mapview on" id="mapWrap"><div id="map"></div></div>
+    <div class="list" id="listWrap"></div>
+  </div>
+
+  <div class="foot" id="foot">Your data is saved in this browser, so you only import once.</div>
+</div>
+
+<button class="fab" id="centerBtn">◎</button>
+<div class="sheet" id="sheet">
+  <div class="handle"></div>
+  <div class="sheetinner" id="sheetInner"></div>
+</div>
+<div class="modalbackdrop" id="backdrop"></div>
+<div class="modal" id="modal">
+  <h2>Import places</h2>
+  <p>Paste CSV/TSV data from Google Takeout or upload a file. After import, the list stays saved on this device.</p>
+  <textarea id="paste" rows="10" placeholder="Paste CSV here, or use file upload below"></textarea>
+  <div class="row">
+    <input type="file" id="file" accept=".csv,.tsv,.txt" />
+  </div>
+  <div class="row">
+    <button class="smallbtn" id="cancelImport">Cancel</button>
+    <button class="smallbtn primary" id="doImport">Save places</button>
+  </div>
+  <p class="muted" id="importMsg"></p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const STORAGE_KEY = 'my-places-data-v1';
+const SETTINGS_KEY = 'my-places-settings-v1';
+const ICONS = {restaurant:'🍽️', bar:'🍸', cafe:'☕', park:'🌿', museum:'🏛️', mall:'🛍️', viewpoint:'🌅', gym:'🏋️', hotel:'🏨', entertainment:'🎭', spa:'💆', place:'📍'};
+const TYPE_KW = {
+  restaurant:['restaurant','bistro','grill','kitchen','eatery','diner','trattoria','cantina','ramen','sushi','pizza','burger','taco','bbq','steakhouse','gastropub','noodle','dumpling'],
+  bar:['bar','brewery','cocktail','lounge','winery','taproom','speakeasy','nightclub','pub','tavern','wine bar'],
+  cafe:['cafe','café','coffee','bakery','tea','boba','dessert','ice cream','gelato','donut','bagel','patisserie'],
+  park:['park','trail','nature','reserve','garden','beach','lake','hiking','preserve','waterfall','boardwalk','wildlife','recreation area'],
+  museum:['museum','gallery','exhibit','art ','science center','aquarium','zoo','planetarium','cultural center'],
+  mall:['mall','shopping','plaza','outlet','market','store','shop','thrift'],
+  viewpoint:['viewpoint','overlook','summit','vista','lookout','scenic','observation deck','point'],
+  gym:['gym','fitness','yoga','pilates','crossfit','sport','recreation','pool','climbing'],
+  hotel:['hotel','motel','hostel','inn','resort','lodge'],
+  entertainment:['theater','theatre','cinema','movie','bowling','arcade','concert','venue','stadium','arena','comedy','escape room'],
+  spa:['spa','salon','massage','nail','barber','beauty']
+};
+const CUISINES = ['Italian','Mexican','Japanese','Chinese','Thai','Indian','Korean','Vietnamese','Mediterranean','American','French','Greek','Spanish','Middle Eastern','Ethiopian','Peruvian','Brazilian','Hawaiian','Filipino','Taiwanese','Persian','Turkish','Moroccan','Seafood','Vegan','Vegetarian','Halal'];
+const FREE_TYPES = new Set(['park','viewpoint']);
+
+let places = loadPlaces();
+let settings = loadSettings();
+let map, userMarker, userLat = null, userLon = null, activeTab = 'map', activeTypes = new Set(settings.activeTypes || []);
+let markers = [];
+let sheetPlace = null;
+let geolocating = false;
+
+function loadPlaces(){
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+}
+function savePlaces(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(places)); }
+function loadSettings(){
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+function saveSettings(){
+  settings.activeTypes = [...activeTypes];
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+function slug(s){ return String(s||'').toLowerCase().trim(); }
+function cap(s){ return s ? s[0].toUpperCase() + s.slice(1) : s; }
+function toast(msg){ document.getElementById('locState').textContent = msg; }
+function haversine(a,b,c,d){ const R=3958.8, dLat=(c-a)*Math.PI/180, dLon=(d-b)*Math.PI/180; const x=Math.sin(dLat/2)**2 + Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLon/2)**2; return R*2*Math.atan2(Math.sqrt(x), Math.sqrt(1-x)); }
+function guessType(text){
+  text = slug(text);
+  for (const [type, kws] of Object.entries(TYPE_KW)) if (kws.some(k => text.includes(k))) return type;
+  return 'place';
+}
+function guessCuisine(text){
+  text = slug(text);
+  return CUISINES.find(c => text.includes(slug(c))) || '';
+}
+function guessPrice(place){
+  const t = place.type;
+  if (FREE_TYPES.has(t)) return 'free';
+  return '';
+}
+function detectType(place){
+  const combined = [place.name, place.note, place.comment, place.tags, place.url].filter(Boolean).join(' ');
+  place.type = guessType(combined);
+  place.cuisine = ['restaurant','bar','cafe'].includes(place.type) ? guessCuisine(combined) : '';
+  place.price = guessPrice(place);
+}
+function normalizePlace(p, idx){
+  const place = {
+    id: p.id || idx,
+    name: p.name || p.title || '',
+    url: p.url || p.link || '',
+    note: p.note || '',
+    comment: p.comment || '',
+    tags: p.tags || '',
+    lat: p.lat != null ? Number(p.lat) : null,
+    lon: p.lon != null ? Number(p.lon) : null,
+    type: p.type || 'place',
+    cuisine: p.cuisine || '',
+    price: p.price || '',
+    blurb: p.blurb || '',
+    dist: null
+  };
+  detectType(place);
+  return place;
+}
+places = places.map(normalizePlace);
+
+function parseDelimited(text){
+  const first = text.split(/\r?\n/)[0] || '';
+  const delim = first.includes('\t') ? '\t' : ',';
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = splitLine(lines[0], delim).map(h => slug(h.replace(/"/g,'')));
+  const idx = (cands) => headers.findIndex(h => cands.includes(h));
+  const ti = idx(['title','name','place name']);
+  const ui = idx(['url','google maps url','link']);
+  const ni = idx(['note','notes']);
+  const ci = idx(['comment','comments']);
+  const gi = idx(['tags','tag','list']);
+  return lines.slice(1).map((line, i) => {
+    const cols = splitLine(line, delim).map(c => c.replace(/^"|"$/g,'').trim());
+    const name = ti >= 0 ? (cols[ti] || '') : '';
+    if (!name) return null;
+    return normalizePlace({
+      id: i,
+      name,
+      url: ui >= 0 ? (cols[ui] || '') : '',
+      note: ni >= 0 ? (cols[ni] || '') : '',
+      comment: ci >= 0 ? (cols[ci] || '') : '',
+      tags: gi >= 0 ? (cols[gi] || '') : ''
+    }, i);
+  }).filter(Boolean);
+}
+function splitLine(line, delim){
+  const out = []; let cur = ''; let q = false;
+  for (let i=0;i<line.length;i++) {
+    const ch = line[i];
+    if (ch === '"') q = !q;
+    else if (ch === delim && !q) { out.push(cur); cur=''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+function updateCounts(){
+  document.getElementById('count').textContent = `${filteredPlaces().length} / ${places.length} places`;
+}
+function currentQuery(){ return slug(document.getElementById('search').value); }
+function filteredPlaces(){
+  const q = currentQuery();
+  return places.filter(p => {
+    const text = [p.name,p.note,p.comment,p.tags,p.type,p.cuisine,p.price].filter(Boolean).join(' ').toLowerCase();
+    const okText = !q || text.includes(q);
+    const okType = activeTypes.size === 0 || activeTypes.has(p.type);
+    return okText && okType;
+  });
+}
+function computeDistances(list){
+  if (userLat == null || userLon == null) return list;
+  for (const p of list) if (p.lat != null && p.lon != null) p.dist = haversine(userLat, userLon, p.lat, p.lon);
+  return list;
+}
+function sortPlaces(list){
+  const s = document.getElementById('sort').value;
+  const arr = [...list];
+  if (s === 'distance') arr.sort((a,b) => (a.dist ?? 1e9) - (b.dist ?? 1e9));
+  else if (s === 'type') arr.sort((a,b) => (a.type||'').localeCompare(b.type||'') || (a.name||'').localeCompare(b.name||''));
+  else if (s === 'cuisine') arr.sort((a,b) => (a.cuisine||'zzz').localeCompare(b.cuisine||'zzz') || (a.name||'').localeCompare(b.name||''));
+  else if (s === 'price') arr.sort((a,b) => (a.price||'zzz').localeCompare(b.price||'zzz') || (a.name||'').localeCompare(b.name||''));
+  else arr.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  return arr;
+}
+function visiblePlaces(){ return sortPlaces(computeDistances(filteredPlaces())); }
+
+function renderFilters(){
+  const bar = document.getElementById('filters');
+  const types = [...new Set(places.map(p => p.type))].sort();
+  bar.innerHTML = '';
+  const all = mkChip('All', activeTypes.size === 0, () => { activeTypes.clear(); saveSettings(); renderAll(); });
+  bar.appendChild(all);
+  types.forEach(t => bar.appendChild(mkChip(`${ICONS[t] || '📍'} ${cap(t)}`, activeTypes.has(t), () => {
+    if (activeTypes.has(t)) activeTypes.delete(t); else activeTypes.add(t);
+    saveSettings(); renderAll();
+  })));
+}
+function mkChip(label, on, fn){
+  const b = document.createElement('button');
+  b.className = 'chip' + (on ? ' on' : '');
+  b.textContent = label;
+  b.onclick = fn;
+  return b;
+}
+function renderList(){
+  const wrap = document.getElementById('listWrap');
+  const items = visiblePlaces();
+  if (!items.length) {
+    wrap.innerHTML = '<div class="place"><strong>No places match.</strong><div class="blurb">Try clearing a filter or search.</div></div>';
+    return;
+  }
+  wrap.innerHTML = items.map(placeCardHTML).join('');
+  wrap.querySelectorAll('[data-open]').forEach(btn => btn.addEventListener('click', () => openSheet(items.find(p => String(p.id) === btn.dataset.open))));
+  wrap.querySelectorAll('[data-map]').forEach(btn => btn.addEventListener('click', () => focusPlace(items.find(p => String(p.id) === btn.dataset.map))));
+}
+function placeCardHTML(p){
+  const tags = [
+    `<span class="tag type">${cap(p.type)}</span>`,
+    p.cuisine ? `<span class="tag cuisine">${p.cuisine}</span>` : '',
+    p.price === 'free' ? `<span class="tag free">Free</span>` : '',
+    p.price && p.price !== 'free' ? `<span class="tag price">${p.price}</span>` : ''
+  ].filter(Boolean).join('');
+  const dist = p.dist != null ? `${p.dist.toFixed(1)} mi away` : 'Tap location to sort by distance';
+  const blurb = p.blurb ? `<div class="blurb">${escapeHTML(p.blurb)}</div>` : '';
+  return `<div class="place">
+    <div class="placehead">
+      <div><h3 class="placetitle">${escapeHTML(p.name)}</h3></div>
+      <div class="distance">${dist}</div>
+    </div>
+    <div class="meta">${tags}</div>
+    ${blurb}
+    <div class="actions">
+      <button class="smallbtn primary" data-open="${p.id}">Details</button>
+      <button class="smallbtn" data-map="${p.id}">Focus map</button>
+      ${p.url ? `<a class="smallbtn" href="${escapeAttr(p.url)}" target="_blank" rel="noopener">Open in Maps</a>` : ''}
+    </div>
+  </div>`;
+}
+function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function escapeAttr(s){ return escapeHTML(s).replace(/`/g,'&#96;'); }
+
+function initMap(){
+  if (map) return;
+  map = L.map('map', { zoomControl: true }).setView([34.05, -118.24], 11);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19 }).addTo(map);
+  map.on('click', () => closeSheet());
+}
+function clearMarkers(){
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+}
+function renderMarkers(){
+  initMap();
+  clearMarkers();
+  const items = visiblePlaces().filter(p => p.lat != null && p.lon != null);
+  items.forEach(p => {
+    const emoji = ICONS[p.type] || '📍';
+    const icon = L.divIcon({ html:`<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))">${emoji}</div>`, iconSize:[26,26], iconAnchor:[13,13], className:'' });
+    const m = L.marker([p.lat, p.lon], {icon}).addTo(map);
+    m.on('click', () => openSheet(p));
+    markers.push(m);
+  });
+  if (items.length && !document.getElementById('centerBtn').dataset.centered) {
+    const valid = items.filter(p => p.lat != null && p.lon != null);
+    if (valid.length) map.fitBounds(valid.map(p => [p.lat, p.lon]), { padding: [30, 30] });
+  }
+}
+function focusPlace(p){
+  if (!p || p.lat == null || p.lon == null) return;
+  initMap();
+  map.setView([p.lat, p.lon], 15);
+  openSheet(p);
+}
+function openSheet(p){
+  if (!p) return;
+  sheetPlace = p;
+  const dist = p.dist != null ? `${p.dist.toFixed(1)} miles away` : 'Turn on location to sort by distance';
+  const tags = [
+    `<span class="tag type">${cap(p.type)}</span>`,
+    p.cuisine ? `<span class="tag cuisine">${p.cuisine}</span>` : '',
+    p.price === 'free' ? `<span class="tag free">Free</span>` : '',
+    p.price && p.price !== 'free' ? `<span class="tag price">${p.price}</span>` : ''
+  ].filter(Boolean).join('');
+  const note = [p.note, p.comment].filter(Boolean).join(' ').trim();
+  document.getElementById('sheetInner').innerHTML = `
+    <div style="font-size:28px">${ICONS[p.type] || '📍'}</div>
+    <div class="sheettitle">${escapeHTML(p.name)}</div>
+    <div class="sheetdist">${escapeHTML(dist)}</div>
+    <div class="meta">${tags}</div>
+    ${note ? `<div class="sheetnote"><strong>Note:</strong> ${escapeHTML(note)}</div>` : ''}
+    ${p.blurb ? `<div class="sheetnote"><strong>Vibe:</strong> ${escapeHTML(p.blurb)}</div>` : '<div class="sheetnote muted">Add a blurb later if you want AI-generated vibes.</div>'}
+    <div class="actions" style="margin-top:14px">
+      ${p.url ? `<a class="smallbtn primary" href="${escapeAttr(p.url)}" target="_blank" rel="noopener">Open in Maps</a>` : ''}
+      <button class="smallbtn" id="closeSheetBtn">Close</button>
+    </div>
+  `;
+  document.getElementById('closeSheetBtn').onclick = closeSheet;
+  document.getElementById('sheet').classList.add('on');
+}
+function closeSheet(){ document.getElementById('sheet').classList.remove('on'); }
+
+function renderTabs(){
+  document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('on', btn.dataset.tab === activeTab));
+  document.getElementById('mapWrap').classList.toggle('on', activeTab === 'map');
+  document.getElementById('listWrap').classList.toggle('on', activeTab === 'go');
+  if (activeTab === 'map') initMap();
+  renderAll();
+}
+function renderAll(){
+  computeDistances(places);
+  renderFilters();
+  updateLocationState();
+  updateCounts();
+  renderList();
+  renderMarkers();
+  if (activeTab === 'map') document.getElementById('mapWrap').classList.add('on');
+}
+function updateLocationState(){
+  document.getElementById('locState').textContent = userLat == null ? 'Location off' : 'Location on';
+  document.getElementById('subtitle').textContent = userLat == null ? 'Saved places on a map and a fast “go now” list' : 'Sorted by how close you are';
+}
+
+function requestLocation(){
+  if (!navigator.geolocation) { toast('Geolocation not supported'); return; }
+  geolocating = true;
+  document.getElementById('locBtn').textContent = '…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    userLat = pos.coords.latitude; userLon = pos.coords.longitude;
+    if (userMarker) map.removeLayer(userMarker);
+    initMap();
+    const icon = L.divIcon({ html:'<div style="width:16px;height:16px;background:var(--green);border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 5px rgba(45,90,61,.2)"></div>', iconSize:[16,16], iconAnchor:[8,8], className:'' });
+    userMarker = L.marker([userLat, userLon], {icon}).addTo(map).bindTooltip('You', {permanent:true, direction:'top', offset:[0,-8]});
+    map.setView([userLat, userLon], 13);
+    document.getElementById('locBtn').textContent = '📍';
+    toast('Location found');
+    renderAll();
+  }, () => {
+    document.getElementById('locBtn').textContent = '📍';
+    toast('Allow location to sort by distance');
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+}
+
+function importModal(open){
+  document.getElementById('modal').classList.toggle('on', open);
+  document.getElementById('backdrop').classList.toggle('on', open);
+}
+function doImport(){
+  const txt = document.getElementById('paste').value.trim();
+  const file = document.getElementById('file').files[0];
+  const msg = document.getElementById('importMsg');
+  const finish = (text) => {
+    const parsed = parseDelimited(text);
+    if (!parsed.length) { msg.textContent = 'No places found. Try a different export or CSV.'; return; }
+    places = parsed.map(normalizePlace);
+    savePlaces();
+    msg.textContent = `Saved ${places.length} places.`;
+    importModal(false);
+    renderAll();
+    toast('Places saved');
+  };
+  if (txt) return finish(txt);
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = e => finish(String(e.target.result || ''));
+    reader.readAsText(file);
+    return;
+  }
+  msg.textContent = 'Paste a CSV/TSV file or choose one first.';
+}
+
+// Events
+window.addEventListener('resize', () => map && map.invalidateSize());
+document.getElementById('importBtn').onclick = () => { document.getElementById('paste').value = ''; document.getElementById('file').value = ''; document.getElementById('importMsg').textContent = ''; importModal(true); };
+document.getElementById('cancelImport').onclick = () => importModal(false);
+document.getElementById('backdrop').onclick = () => importModal(false);
+document.getElementById('doImport').onclick = doImport;
+document.getElementById('locBtn').onclick = requestLocation;
+document.getElementById('centerBtn').onclick = () => { if (userLat != null && userLon != null) { initMap(); map.setView([userLat, userLon], 13); } else requestLocation(); };
+document.getElementById('search').addEventListener('input', renderAll);
+document.getElementById('sort').addEventListener('change', renderAll);
+document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => { activeTab = btn.dataset.tab; renderTabs(); }));
+
+// Initial load
+if (places.length) {
+  document.getElementById('subtitle').textContent = `${places.length} saved places already loaded`;
+}
+renderTabs();
+updateLocationState();
+updateCounts();
+if (places.length) {
+  renderAll();
+} else {
+  setTimeout(() => importModal(true), 250);
+}
+</script>
+</body>
+</html>
