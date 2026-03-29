@@ -208,7 +208,24 @@ function guessCuisine(text){
 }
 function guessPrice(place){
   if (FREE_TYPES.has(place.type)) return 'free';
-  return '';
+  const name = slug(place.name);
+  const note = slug([place.note, place.comment, place.tags, place.url].filter(Boolean).join(' '));
+  const cuisine = slug(place.cuisine);
+  const type = place.type || 'place';
+
+  const cheapKeywords = ['taco','burger','pizza','ramen','sandwich','deli','bakery','coffee','cafe','boba','donut','ice cream','street food','fast food','noodle'];
+  const midKeywords = ['restaurant','bar','brewery','gastropub','brunch','bistro','grill','sushi','thai','korean','vietnamese','indian','mexican','italian','mediterranean','museum','entertainment','mall'];
+  const upscaleKeywords = ['fine dining','steakhouse','tasting menu','wine bar','cocktail lounge','michelin','luxury','resort','spa','hotel'];
+
+  if (upscaleKeywords.some(k => name.includes(k) || note.includes(k) || cuisine.includes(k) || type.includes(k))) return '$$$';
+  if (cheapKeywords.some(k => name.includes(k) || note.includes(k) || cuisine.includes(k) || type.includes(k))) return '$';
+  if (type === 'cafe') return '$';
+  if (type === 'bar') return '$$';
+  if (type === 'restaurant') return '$$';
+  if (type === 'museum' || type === 'entertainment' || type === 'mall') return '$$';
+  if (type === 'hotel' || type === 'spa') return '$$$';
+  if (type === 'gym') return '$$';
+  return '$$';
 }
 function detectType(place){
   const combined = [place.name, place.note, place.comment, place.tags, place.url].filter(Boolean).join(' ');
@@ -390,8 +407,8 @@ function localBlurb(place){
   const priceBit = place.price === 'free'
     ? 'It is free, which makes it easy to fit into a casual day.'
     : place.price
-      ? `Price is ${place.price}.`
-      : (type === 'park' || type === 'viewpoint' ? 'It is a free third-space kind of stop.' : 'Price is not clearly listed.');
+      ? `Estimated price is ${place.price}.`
+      : 'Estimated price is $$.';
   const extra = [place.note, place.comment, place.tags].filter(Boolean).length
     ? seededChoice(place.name + 'notes', ['The saved notes make it feel specific, not generic.', 'The notes suggest it has a distinct vibe.', 'It seems like the kind of place that matches a certain mood.'])
     : vibe;
