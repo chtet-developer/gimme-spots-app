@@ -36,7 +36,7 @@
   #map{flex:1;min-height:0}
   .list{display:none;flex:1;overflow:auto;padding:10px 12px 90px}
   .list.on{display:block}
-  .mapview{display:flex;flex:1;flex-direction:column}
+  .mapview{display:none;flex:1;flex-direction:column}
   .mapview.on{display:flex}
   .place{background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:18px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow)}
   .placehead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
@@ -131,6 +131,8 @@
   <h2>Import places</h2>
   <p>Paste CSV/TSV data from Google Takeout or upload a file. After import, the list stays saved on this device.</p>
   <textarea id="paste" rows="10" placeholder="Paste CSV here, or use file upload below"></textarea>
+  <label class="muted" style="display:block;margin-top:10px;font-size:12px;">Anthropic API key for auto-generated vibes</label>
+  <input type="password" id="apiKey" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font:inherit;background:#fff;margin-top:6px;" />
   <div class="row">
     <input type="file" id="file" accept=".csv,.tsv,.txt" />
   </div>
@@ -145,6 +147,7 @@
 <script>
 const STORAGE_KEY = 'my-places-data-v1';
 const SETTINGS_KEY = 'my-places-settings-v1';
+const AI_KEY = 'my-places-ai-key-v1';
 const ICONS = {restaurant:'🍽️', bar:'🍸', cafe:'☕', park:'🌿', museum:'🏛️', mall:'🛍️', viewpoint:'🌅', gym:'🏋️', hotel:'🏨', entertainment:'🎭', spa:'💆', place:'📍'};
 const TYPE_KW = {
   restaurant:['restaurant','bistro','grill','kitchen','eatery','diner','trattoria','cantina','ramen','sushi','pizza','burger','taco','bbq','steakhouse','gastropub','noodle','dumpling'],
@@ -164,12 +167,13 @@ const FREE_TYPES = new Set(['park','viewpoint']);
 
 let places = loadPlaces();
 let settings = loadSettings();
-let map, userMarker, userLat = null, userLon = null, activeTab = 'map', activeTypes = new Set(settings.activeTypes || []);
+let map, userMarker, userLat = null, userLon = null, activeTab = 'go', activeTypes = new Set(settings.activeTypes || []);
 let markers = [];
 let sheetPlace = null;
 let geolocating = false;
 let geocodeRunning = false;
 let geocodeAbort = false;
+let apiKey = loadApiKey();
 
 function loadPlaces(){
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
@@ -181,6 +185,14 @@ function loadSettings(){
 function saveSettings(){
   settings.activeTypes = [...activeTypes];
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+function loadApiKey(){
+  return localStorage.getItem(AI_KEY) || '';
+}
+function saveApiKey(val){
+  apiKey = String(val || '').trim();
+  if (apiKey) localStorage.setItem(AI_KEY, apiKey);
+  else localStorage.removeItem(AI_KEY);
 }
 function slug(s){ return String(s||'').toLowerCase().trim(); }
 function cap(s){ return s ? s[0].toUpperCase() + s.slice(1) : s; }
@@ -392,6 +404,63 @@ async function geocodePlace(place){
   return false;
 }
 
+function placeSummary(p){
+  const bits = [cap(p.type)];
+  if (p.cuisine) bits.push(p.cuisine + ' cuisine');
+  if (p.price === 'free') bits.push('free');
+  else if (p.price) bits.push(p.price);
+  return bits.join(' · ');
+}
+
+async function generateBlurb(place, silent = false){
+  if (!apiKey) return "";
+  if (place.blurb) return place.blurb;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 120,
+        messages: [{
+          role: 'user',
+          content: 'Write exactly 2 short sentences describing the vibe of this place in a friendly, specific way. Mention the type, likely vibe/popularity, and whether it feels casual, busy, scenic, or social. Use this context: name=' + place.name + '; type=' + place.type + '; cuisine=' + (place.cuisine || 'none') + '; price=' + (place.price || 'unknown') + '; note=' + (place.note || '') + '; comment=' + (place.comment || '') + '; tags=' + (place.tags || '') + '. Do not use bullets.'
+        }]
+      })
+    });
+    const data = await res.json();
+    const text = String(data && data.content && data.content[0] && data.content[0].text || "").trim();
+    if (text) {
+      place.blurb = text;
+      savePlaces();
+      if (!silent) renderAll();
+      return text;
+    }
+  } catch (err) {
+    console.warn('AI blurb failed', place.name, err);
+  }
+  return "";
+}
+
+async function generateBlurbsForAll(){
+  if (!apiKey) return;
+  const missing = places.filter(p => !p.blurb);
+  if (!missing.length) return;
+  document.getElementById('foot').textContent = 'Writing vibes for ' + missing.length + ' places...';
+  for (let i = 0; i < missing.length; i++) {
+    const p = missing[i];
+    await generateBlurb(p, true);
+    document.getElementById('foot').textContent = 'Writing vibes... ' + (i + 1) + '/' + missing.length;
+    await new Promise(r => setTimeout(r, 800));
+  }
+  savePlaces();
+  renderAll();
+  document.getElementById('foot').textContent = 'Your data is saved in this browser, so you only import once.';
+}
 async function geocodeMissingPlaces(){
   if (geocodeRunning) return;
   geocodeRunning = true;
@@ -453,6 +522,11 @@ function focusPlace(p){
 function openSheet(p){
   if (!p) return;
   sheetPlace = p;
+  if (!p.blurb && apiKey) {
+    generateBlurb(p, true).then(() => {
+      if (sheetPlace && sheetPlace.id === p.id) renderAll();
+    });
+  }
   const dist = p.dist != null ? `${p.dist.toFixed(1)} miles away` : 'Turn on location to sort by distance';
   const tags = [
     `<span class="tag type">${cap(p.type)}</span>`,
@@ -467,7 +541,7 @@ function openSheet(p){
     <div class="sheetdist">${escapeHTML(dist)}</div>
     <div class="meta">${tags}</div>
     ${note ? `<div class="sheetnote"><strong>Note:</strong> ${escapeHTML(note)}</div>` : ''}
-    ${p.blurb ? `<div class="sheetnote"><strong>Vibe:</strong> ${escapeHTML(p.blurb)}</div>` : '<div class="sheetnote muted">Add a blurb later if you want AI-generated vibes.</div>'}
+    ${p.blurb ? `<div class="sheetnote"><strong>Vibe:</strong> ${escapeHTML(p.blurb)}</div>` : `<div class="sheetnote muted">${apiKey ? 'Generating a vibe automatically…' : 'Add an API key to auto-generate vibes for every place.'}</div>`}
     <div class="actions" style="margin-top:14px">
       ${p.url ? `<a class="smallbtn primary" href="${escapeAttr(p.url)}" target="_blank" rel="noopener">Open in Maps</a>` : ''}
       <button class="smallbtn" id="closeSheetBtn">Close</button>
@@ -491,7 +565,11 @@ function renderAll(){
   updateLocationState();
   updateCounts();
   renderList();
-  renderMarkers();
+  if (activeTab === 'map') {
+    renderMarkers();
+  } else if (map) {
+    clearMarkers();
+  }
   if (activeTab === 'map') document.getElementById('mapWrap').classList.add('on');
 }
 function updateLocationState(){
@@ -524,6 +602,7 @@ function importModal(open){
   document.getElementById('backdrop').classList.toggle('on', open);
 }
 function doImport(){
+  saveApiKey(document.getElementById('apiKey').value);
   const txt = document.getElementById('paste').value.trim();
   const file = document.getElementById('file').files[0];
   const msg = document.getElementById('importMsg');
@@ -550,10 +629,11 @@ function doImport(){
 
 // Events
 window.addEventListener('resize', () => map && map.invalidateSize());
-document.getElementById('importBtn').onclick = () => { document.getElementById('paste').value = ''; document.getElementById('file').value = ''; document.getElementById('importMsg').textContent = ''; importModal(true); };
-document.getElementById('cancelImport').onclick = () => importModal(false);
-document.getElementById('backdrop').onclick = () => importModal(false);
+document.getElementById('importBtn').onclick = () => { document.getElementById('paste').value = ''; document.getElementById('file').value = ''; document.getElementById('importMsg').textContent = ''; document.getElementById('apiKey').value = apiKey || ''; importModal(true); };
+document.getElementById('cancelImport').onclick = () => { saveApiKey(document.getElementById('apiKey').value); importModal(false); };
+document.getElementById('backdrop').onclick = () => { saveApiKey(document.getElementById('apiKey').value); importModal(false); };
 document.getElementById('doImport').onclick = doImport;
+document.getElementById('apiKey').addEventListener('change', () => saveApiKey(document.getElementById('apiKey').value));
 document.getElementById('locBtn').onclick = requestLocation;
 document.getElementById('centerBtn').onclick = () => { if (userLat != null && userLon != null) { initMap(); map.setView([userLat, userLon], 13); } else requestLocation(); };
 document.getElementById('search').addEventListener('input', renderAll);
@@ -561,6 +641,7 @@ document.getElementById('sort').addEventListener('change', renderAll);
 document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => { activeTab = btn.dataset.tab; renderTabs(); }));
 
 // Initial load
+document.getElementById('apiKey').value = apiKey || '';
 if (places.length) {
   document.getElementById('subtitle').textContent = `${places.length} saved places already loaded`;
 }
@@ -569,7 +650,7 @@ updateLocationState();
 updateCounts();
 if (places.length) {
   renderAll();
-  geocodeMissingPlaces();
+  geocodeMissingPlaces().then(() => generateBlurbsForAll());
 } else {
   setTimeout(() => importModal(true), 250);
 }
