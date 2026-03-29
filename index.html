@@ -52,7 +52,7 @@
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
   .smallbtn{border:1px solid var(--line);border-radius:999px;padding:8px 12px;background:#fff}
   .smallbtn.primary{background:var(--green);border-color:var(--green);color:#fff}
-  .sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.16);transform:translateY(102%);transition:transform .25s ease;z-index:50;max-height:72vh;overflow:auto}
+  .sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.16);transform:translateY(102%);transition:transform .25s ease;z-index:9999;max-height:72vh;overflow:auto}
   .sheet.on{transform:translateY(0)}
   .handle{width:38px;height:4px;border-radius:999px;background:#ddd;margin:10px auto 0}
   .sheetinner{padding:12px 16px 20px}
@@ -60,9 +60,9 @@
   .sheetdist{color:var(--green);font-weight:700;font-size:13px;margin-bottom:10px}
   .sheetnote{color:#5f5a54;font-size:13px;line-height:1.5;margin-top:10px}
   .muted{color:var(--muted)}
-  .modalbackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:60}
+  .modalbackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:10000}
   .modalbackdrop.on{display:block}
-  .modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,540px);background:#fff;border-radius:20px;box-shadow:var(--shadow);padding:16px;display:none;z-index:70}
+  .modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,540px);background:#fff;border-radius:20px;box-shadow:var(--shadow);padding:16px;display:none;z-index:10001}
   .modal.on{display:block}
   .modal h2{margin:0 0 10px;font-size:18px}
   .modal p{margin:8px 0;color:var(--muted);font-size:13px;line-height:1.45}
@@ -131,8 +131,6 @@
   <h2>Import places</h2>
   <p>Paste CSV/TSV data from Google Takeout or upload a file. After import, the list stays saved on this device.</p>
   <textarea id="paste" rows="10" placeholder="Paste CSV here, or use file upload below"></textarea>
-  <label class="muted" style="display:block;margin-top:10px;font-size:12px;">Anthropic API key for auto-generated vibes</label>
-  <input type="password" id="apiKey" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font:inherit;background:#fff;margin-top:6px;" />
   <div class="row">
     <input type="file" id="file" accept=".csv,.tsv,.txt" />
   </div>
@@ -145,9 +143,9 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+
 const STORAGE_KEY = 'my-places-data-v1';
 const SETTINGS_KEY = 'my-places-settings-v1';
-const AI_KEY = 'my-places-ai-key-v1';
 const ICONS = {restaurant:'🍽️', bar:'🍸', cafe:'☕', park:'🌿', museum:'🏛️', mall:'🛍️', viewpoint:'🌅', gym:'🏋️', hotel:'🏨', entertainment:'🎭', spa:'💆', place:'📍'};
 const TYPE_KW = {
   restaurant:['restaurant','bistro','grill','kitchen','eatery','diner','trattoria','cantina','ramen','sushi','pizza','burger','taco','bbq','steakhouse','gastropub','noodle','dumpling'],
@@ -165,7 +163,7 @@ const TYPE_KW = {
 const CUISINES = ['Italian','Mexican','Japanese','Chinese','Thai','Indian','Korean','Vietnamese','Mediterranean','American','French','Greek','Spanish','Middle Eastern','Ethiopian','Peruvian','Brazilian','Hawaiian','Filipino','Taiwanese','Persian','Turkish','Moroccan','Seafood','Vegan','Vegetarian','Halal'];
 const FREE_TYPES = new Set(['park','viewpoint']);
 
-let places = loadPlaces();
+let places = loadPlaces().map(normalizePlace);
 let settings = loadSettings();
 let map, userMarker, userLat = null, userLon = null, activeTab = 'go', activeTypes = new Set(settings.activeTypes || []);
 let markers = [];
@@ -173,7 +171,6 @@ let sheetPlace = null;
 let geolocating = false;
 let geocodeRunning = false;
 let geocodeAbort = false;
-let apiKey = loadApiKey();
 
 function loadPlaces(){
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
@@ -186,21 +183,23 @@ function saveSettings(){
   settings.activeTypes = [...activeTypes];
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
-function loadApiKey(){
-  return localStorage.getItem(AI_KEY) || '';
-}
-function saveApiKey(val){
-  apiKey = String(val || '').trim();
-  if (apiKey) localStorage.setItem(AI_KEY, apiKey);
-  else localStorage.removeItem(AI_KEY);
-}
-function slug(s){ return String(s||'').toLowerCase().trim(); }
 function cap(s){ return s ? s[0].toUpperCase() + s.slice(1) : s; }
+function slug(s){ return String(s||'').toLowerCase().trim(); }
+function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function escapeAttr(s){ return escapeHTML(s).replace(/`/g,'&#96;'); }
 function toast(msg){ document.getElementById('locState').textContent = msg; }
 function haversine(a,b,c,d){ const R=3958.8, dLat=(c-a)*Math.PI/180, dLon=(d-b)*Math.PI/180; const x=Math.sin(dLat/2)**2 + Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLon/2)**2; return R*2*Math.atan2(Math.sqrt(x), Math.sqrt(1-x)); }
+function seededChoice(seed, arr){
+  const s = String(seed || '0');
+  let n = 0;
+  for (let i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) >>> 0;
+  return arr[n % arr.length];
+}
 function guessType(text){
   text = slug(text);
-  for (const [type, kws] of Object.entries(TYPE_KW)) if (kws.some(k => text.includes(k))) return type;
+  for (const [type, kws] of Object.entries(TYPE_KW)) {
+    if (kws.some(k => text.includes(k))) return type;
+  }
   return 'place';
 }
 function guessCuisine(text){
@@ -208,8 +207,7 @@ function guessCuisine(text){
   return CUISINES.find(c => text.includes(slug(c))) || '';
 }
 function guessPrice(place){
-  const t = place.type;
-  if (FREE_TYPES.has(t)) return 'free';
+  if (FREE_TYPES.has(place.type)) return 'free';
   return '';
 }
 function detectType(place){
@@ -220,7 +218,7 @@ function detectType(place){
 }
 function normalizePlace(p, idx){
   const place = {
-    id: p.id || idx,
+    id: p.id ?? idx,
     name: p.name || p.title || '',
     url: p.url || p.link || '',
     note: p.note || '',
@@ -235,10 +233,9 @@ function normalizePlace(p, idx){
     dist: null
   };
   detectType(place);
+  if (!place.blurb) place.blurb = localBlurb(place);
   return place;
 }
-places = places.map(normalizePlace);
-
 function parseDelimited(text){
   const first = text.split(/\r?\n/)[0] || '';
   const delim = first.includes('\t') ? '\t' : ',';
@@ -276,15 +273,11 @@ function splitLine(line, delim){
   out.push(cur);
   return out;
 }
-
-function updateCounts(){
-  document.getElementById('count').textContent = `${filteredPlaces().length} / ${places.length} places`;
-}
 function currentQuery(){ return slug(document.getElementById('search').value); }
 function filteredPlaces(){
   const q = currentQuery();
   return places.filter(p => {
-    const text = [p.name,p.note,p.comment,p.tags,p.type,p.cuisine,p.price].filter(Boolean).join(' ').toLowerCase();
+    const text = [p.name,p.note,p.comment,p.tags,p.type,p.cuisine,p.price,p.blurb].filter(Boolean).join(' ').toLowerCase();
     const okText = !q || text.includes(q);
     const okType = activeTypes.size === 0 || activeTypes.has(p.type);
     return okText && okType;
@@ -306,7 +299,7 @@ function sortPlaces(list){
   return arr;
 }
 function visiblePlaces(){ return sortPlaces(computeDistances(filteredPlaces())); }
-
+function updateCounts(){ document.getElementById('count').textContent = `${visiblePlaces().length} / ${places.length} places`; }
 function renderFilters(){
   const bar = document.getElementById('filters');
   const types = [...new Set(places.map(p => p.type))].sort();
@@ -318,24 +311,7 @@ function renderFilters(){
     saveSettings(); renderAll();
   })));
 }
-function mkChip(label, on, fn){
-  const b = document.createElement('button');
-  b.className = 'chip' + (on ? ' on' : '');
-  b.textContent = label;
-  b.onclick = fn;
-  return b;
-}
-function renderList(){
-  const wrap = document.getElementById('listWrap');
-  const items = visiblePlaces();
-  if (!items.length) {
-    wrap.innerHTML = '<div class="place"><strong>No places match.</strong><div class="blurb">Try clearing a filter or search.</div></div>';
-    return;
-  }
-  wrap.innerHTML = items.map(placeCardHTML).join('');
-  wrap.querySelectorAll('[data-open]').forEach(btn => btn.addEventListener('click', () => openSheet(items.find(p => String(p.id) === btn.dataset.open))));
-  wrap.querySelectorAll('[data-map]').forEach(btn => btn.addEventListener('click', () => focusPlace(items.find(p => String(p.id) === btn.dataset.map))));
-}
+function mkChip(label, on, fn){ const b = document.createElement('button'); b.className = 'chip' + (on ? ' on' : ''); b.textContent = label; b.onclick = fn; return b; }
 function placeCardHTML(p){
   const tags = [
     `<span class="tag type">${cap(p.type)}</span>`,
@@ -343,8 +319,8 @@ function placeCardHTML(p){
     p.price === 'free' ? `<span class="tag free">Free</span>` : '',
     p.price && p.price !== 'free' ? `<span class="tag price">${p.price}</span>` : ''
   ].filter(Boolean).join('');
-  const dist = p.dist != null ? `${p.dist.toFixed(1)} mi away` : 'Tap location to sort by distance';
-  const blurb = p.blurb ? `<div class="blurb">${escapeHTML(p.blurb)}</div>` : '';
+  const dist = p.dist != null ? `${p.dist.toFixed(1)} mi away` : 'Turn on location to sort by distance';
+  const blurb = `<div class="blurb">${escapeHTML(p.blurb || localBlurb(p))}</div>`;
   return `<div class="place">
     <div class="placehead">
       <div><h3 class="placetitle">${escapeHTML(p.name)}</h3></div>
@@ -359,103 +335,82 @@ function placeCardHTML(p){
     </div>
   </div>`;
 }
-function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-function escapeAttr(s){ return escapeHTML(s).replace(/`/g,'&#96;'); }
-
+function renderList(){
+  const wrap = document.getElementById('listWrap');
+  const items = visiblePlaces();
+  if (!items.length) {
+    wrap.innerHTML = '<div class="place"><strong>No places match.</strong><div class="blurb">Try clearing a filter or search.</div></div>';
+    return;
+  }
+  wrap.innerHTML = items.map(placeCardHTML).join('');
+  wrap.querySelectorAll('[data-open]').forEach(btn => btn.addEventListener('click', () => openSheet(items.find(p => String(p.id) === btn.dataset.open))));
+  wrap.querySelectorAll('[data-map]').forEach(btn => btn.addEventListener('click', () => focusPlace(items.find(p => String(p.id) === btn.dataset.map))));
+}
 function extractCoordsFromUrl(url){
   const u = String(url || '');
-  const patterns = [
-    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
-    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
-    /q=(-?\d+(?:\.\d+)?)%2C(-?\d+(?:\.\d+)?)/
-  ];
-  for (const re of patterns) {
-    const m = u.match(re);
-    if (m) return { lat: Number(m[1]), lon: Number(m[2]) };
-  }
+  const patterns = [/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/, /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/, /q=(-?\d+(?:\.\d+)?)%2C(-?\d+(?:\.\d+)?)/];
+  for (const re of patterns) { const m = u.match(re); if (m) return { lat: Number(m[1]), lon: Number(m[2]) }; }
   return null;
 }
-
 async function geocodePlace(place){
   if (place.lat != null && place.lon != null) return true;
   const fromUrl = extractCoordsFromUrl(place.url);
-  if (fromUrl) {
-    place.lat = fromUrl.lat;
-    place.lon = fromUrl.lon;
-    return true;
-  }
-
+  if (fromUrl) { place.lat = fromUrl.lat; place.lon = fromUrl.lon; return true; }
   const query = [place.name, place.note, place.comment, place.tags].filter(Boolean).join(' ').trim();
   if (!query) return false;
-
   try {
     const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(query);
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (!res.ok) return false;
     const data = await res.json();
-    if (Array.isArray(data) && data.length) {
-      place.lat = Number(data[0].lat);
-      place.lon = Number(data[0].lon);
-      return true;
-    }
+    if (Array.isArray(data) && data.length) { place.lat = Number(data[0].lat); place.lon = Number(data[0].lon); return true; }
   } catch (err) {
     console.warn('Geocode failed', place.name, err);
   }
   return false;
 }
-
-function placeSummary(p){
-  const bits = [cap(p.type)];
-  if (p.cuisine) bits.push(p.cuisine + ' cuisine');
-  if (p.price === 'free') bits.push('free');
-  else if (p.price) bits.push(p.price);
-  return bits.join(' · ');
+function localBlurb(place){
+  const type = place.type || 'place';
+  const vibeByType = {
+    restaurant: ['cozy and easy to recommend', 'good for a relaxed meal', 'the kind of place people return to'],
+    bar: ['social and a little lively', 'good for a night-out stop', 'built for hanging out with friends'],
+    cafe: ['calm and easy to linger in', 'good for coffee, working, or a slow break', 'an easy neighborhood feel'],
+    park: ['open and restorative', 'good for a reset or a walk', 'a solid low-key escape'],
+    museum: ['thoughtful and worth a proper visit', 'good if you want something slower and more interesting', 'the kind of place that rewards wandering'],
+    mall: ['busy and practical', 'good when you want a lot of options in one place', 'more utilitarian than cozy'],
+    viewpoint: ['scenic and best for a quick stop', 'good when you want a view or a photo moment', 'worth a detour if you are nearby'],
+    gym: ['focused and routine-friendly', 'good if you want to keep moving', 'more functional than flashy'],
+    hotel: ['settled and practical', 'good as a base or an overnight stop', 'convenient over exciting'],
+    entertainment: ['lively and good for a plan', 'works well when you want to do something specific', 'usually has more energy than a regular hangout'],
+    spa: ['soft and restorative', 'good for slowing down', 'more relaxing than rushed'],
+    place: ['hard to pin down, but potentially interesting', 'good as a flexible backup option', 'worth checking out if you are nearby']
+  };
+  const opener = place.cuisine ? `${place.name} is a ${place.cuisine.toLowerCase()} ${type}.` : `${place.name} is a ${type}.`;
+  const vibe = seededChoice(place.name + type, vibeByType[type] || vibeByType.place);
+  const priceBit = place.price === 'free'
+    ? 'It is free, which makes it easy to fit into a casual day.'
+    : place.price
+      ? `Price is ${place.price}.`
+      : (type === 'park' || type === 'viewpoint' ? 'It is a free third-space kind of stop.' : 'Price is not clearly listed.');
+  const extra = [place.note, place.comment, place.tags].filter(Boolean).length
+    ? seededChoice(place.name + 'notes', ['The saved notes make it feel specific, not generic.', 'The notes suggest it has a distinct vibe.', 'It seems like the kind of place that matches a certain mood.'])
+    : vibe;
+  return `${opener} ${extra} ${priceBit}`.replace(/\s+/g, ' ').trim();
 }
-
-async function generateBlurb(place, silent = false){
-  if (!apiKey) return "";
-  if (place.blurb) return place.blurb;
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 120,
-        messages: [{
-          role: 'user',
-          content: 'Write exactly 2 short sentences describing the vibe of this place in a friendly, specific way. Mention the type, likely vibe/popularity, and whether it feels casual, busy, scenic, or social. Use this context: name=' + place.name + '; type=' + place.type + '; cuisine=' + (place.cuisine || 'none') + '; price=' + (place.price || 'unknown') + '; note=' + (place.note || '') + '; comment=' + (place.comment || '') + '; tags=' + (place.tags || '') + '. Do not use bullets.'
-        }]
-      })
-    });
-    const data = await res.json();
-    const text = String(data && data.content && data.content[0] && data.content[0].text || "").trim();
-    if (text) {
-      place.blurb = text;
-      savePlaces();
-      if (!silent) renderAll();
-      return text;
-    }
-  } catch (err) {
-    console.warn('AI blurb failed', place.name, err);
-  }
-  return "";
+function generateBlurb(place, silent = false){
+  place.blurb = localBlurb(place);
+  savePlaces();
+  if (!silent) renderAll();
+  return Promise.resolve(place.blurb);
 }
-
 async function generateBlurbsForAll(){
-  if (!apiKey) return;
   const missing = places.filter(p => !p.blurb);
   if (!missing.length) return;
   document.getElementById('foot').textContent = 'Writing vibes for ' + missing.length + ' places...';
   for (let i = 0; i < missing.length; i++) {
-    const p = missing[i];
-    await generateBlurb(p, true);
+    await generateBlurb(missing[i], true);
     document.getElementById('foot').textContent = 'Writing vibes... ' + (i + 1) + '/' + missing.length;
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 15));
   }
   savePlaces();
   renderAll();
@@ -471,32 +426,21 @@ async function geocodeMissingPlaces(){
     if (geocodeAbort) break;
     const p = missing[i];
     const ok = await geocodePlace(p);
-    if (ok) {
-      savePlaces();
-      if (activeTab === 'map') {
-        renderMarkers();
-      }
-      renderList();
-      updateCounts();
-    }
+    if (ok) { savePlaces(); if (activeTab === 'map') renderMarkers(); renderList(); updateCounts(); }
     document.getElementById('foot').textContent = `Finding coordinates... ${i + 1}/${missing.length}`;
     await new Promise(r => setTimeout(r, 1100));
   }
   geocodeRunning = false;
-  document.getElementById('foot').textContent = `Your data is saved in this browser, so you only import once.`;
+  document.getElementById('foot').textContent = 'Your data is saved in this browser, so you only import once.';
   renderAll();
 }
-
 function initMap(){
   if (map) return;
   map = L.map('map', { zoomControl: true }).setView([34.05, -118.24], 11);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19 }).addTo(map);
   map.on('click', () => closeSheet());
 }
-function clearMarkers(){
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
-}
+function clearMarkers(){ markers.forEach(m => map.removeLayer(m)); markers = []; }
 function renderMarkers(){
   initMap();
   clearMarkers();
@@ -505,7 +449,11 @@ function renderMarkers(){
     const emoji = ICONS[p.type] || '📍';
     const icon = L.divIcon({ html:`<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))">${emoji}</div>`, iconSize:[26,26], iconAnchor:[13,13], className:'' });
     const m = L.marker([p.lat, p.lon], {icon}).addTo(map);
-    m.on('click', () => openSheet(p));
+    m.on('click', (e) => {
+      if (e && e.originalEvent && typeof e.originalEvent.stopPropagation === 'function') e.originalEvent.stopPropagation();
+      L.DomEvent && L.DomEvent.stop && L.DomEvent.stop(e);
+      openSheet(p);
+    });
     markers.push(m);
   });
   if (items.length && !document.getElementById('centerBtn').dataset.centered) {
@@ -516,16 +464,17 @@ function renderMarkers(){
 function focusPlace(p){
   if (!p || p.lat == null || p.lon == null) return;
   initMap();
+  activeTab = 'map';
+  renderTabs();
   map.setView([p.lat, p.lon], 15);
   openSheet(p);
 }
 function openSheet(p){
   if (!p) return;
   sheetPlace = p;
-  if (!p.blurb && apiKey) {
-    generateBlurb(p, true).then(() => {
-      if (sheetPlace && sheetPlace.id === p.id) renderAll();
-    });
+  if (!p.blurb) {
+    p.blurb = localBlurb(p);
+    savePlaces();
   }
   const dist = p.dist != null ? `${p.dist.toFixed(1)} miles away` : 'Turn on location to sort by distance';
   const tags = [
@@ -541,7 +490,7 @@ function openSheet(p){
     <div class="sheetdist">${escapeHTML(dist)}</div>
     <div class="meta">${tags}</div>
     ${note ? `<div class="sheetnote"><strong>Note:</strong> ${escapeHTML(note)}</div>` : ''}
-    ${p.blurb ? `<div class="sheetnote"><strong>Vibe:</strong> ${escapeHTML(p.blurb)}</div>` : `<div class="sheetnote muted">${apiKey ? 'Generating a vibe automatically…' : 'Add an API key to auto-generate vibes for every place.'}</div>`}
+    <div class="sheetnote"><strong>Vibe:</strong> ${escapeHTML(p.blurb || localBlurb(p))}</div>
     <div class="actions" style="margin-top:14px">
       ${p.url ? `<a class="smallbtn primary" href="${escapeAttr(p.url)}" target="_blank" rel="noopener">Open in Maps</a>` : ''}
       <button class="smallbtn" id="closeSheetBtn">Close</button>
@@ -551,7 +500,6 @@ function openSheet(p){
   document.getElementById('sheet').classList.add('on');
 }
 function closeSheet(){ document.getElementById('sheet').classList.remove('on'); }
-
 function renderTabs(){
   document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('on', btn.dataset.tab === activeTab));
   document.getElementById('mapWrap').classList.toggle('on', activeTab === 'map');
@@ -565,25 +513,20 @@ function renderAll(){
   updateLocationState();
   updateCounts();
   renderList();
-  if (activeTab === 'map') {
-    renderMarkers();
-  } else if (map) {
-    clearMarkers();
-  }
-  if (activeTab === 'map') document.getElementById('mapWrap').classList.add('on');
+  if (activeTab === 'map') renderMarkers();
+  else if (map) clearMarkers();
 }
 function updateLocationState(){
   document.getElementById('locState').textContent = userLat == null ? 'Location off' : 'Location on';
   document.getElementById('subtitle').textContent = userLat == null ? 'Saved places on a map and a fast “go now” list' : 'Sorted by how close you are';
 }
-
 function requestLocation(){
   if (!navigator.geolocation) { toast('Geolocation not supported'); return; }
   geolocating = true;
   document.getElementById('locBtn').textContent = '…';
   navigator.geolocation.getCurrentPosition(pos => {
     userLat = pos.coords.latitude; userLon = pos.coords.longitude;
-    if (userMarker) map.removeLayer(userMarker);
+    if (userMarker && map) map.removeLayer(userMarker);
     initMap();
     const icon = L.divIcon({ html:'<div style="width:16px;height:16px;background:var(--green);border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 5px rgba(45,90,61,.2)"></div>', iconSize:[16,16], iconAnchor:[8,8], className:'' });
     userMarker = L.marker([userLat, userLon], {icon}).addTo(map).bindTooltip('You', {permanent:true, direction:'top', offset:[0,-8]});
@@ -596,13 +539,11 @@ function requestLocation(){
     toast('Allow location to sort by distance');
   }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
 }
-
 function importModal(open){
   document.getElementById('modal').classList.toggle('on', open);
   document.getElementById('backdrop').classList.toggle('on', open);
 }
 function doImport(){
-  saveApiKey(document.getElementById('apiKey').value);
   const txt = document.getElementById('paste').value.trim();
   const file = document.getElementById('file').files[0];
   const msg = document.getElementById('importMsg');
@@ -626,22 +567,18 @@ function doImport(){
   }
   msg.textContent = 'Paste a CSV/TSV file or choose one first.';
 }
-
 // Events
 window.addEventListener('resize', () => map && map.invalidateSize());
-document.getElementById('importBtn').onclick = () => { document.getElementById('paste').value = ''; document.getElementById('file').value = ''; document.getElementById('importMsg').textContent = ''; document.getElementById('apiKey').value = apiKey || ''; importModal(true); };
-document.getElementById('cancelImport').onclick = () => { saveApiKey(document.getElementById('apiKey').value); importModal(false); };
-document.getElementById('backdrop').onclick = () => { saveApiKey(document.getElementById('apiKey').value); importModal(false); };
+document.getElementById('importBtn').onclick = () => { document.getElementById('paste').value = ''; document.getElementById('file').value = ''; document.getElementById('importMsg').textContent = ''; importModal(true); };
+document.getElementById('cancelImport').onclick = () => { importModal(false); };
+document.getElementById('backdrop').onclick = () => { importModal(false); };
 document.getElementById('doImport').onclick = doImport;
-document.getElementById('apiKey').addEventListener('change', () => saveApiKey(document.getElementById('apiKey').value));
 document.getElementById('locBtn').onclick = requestLocation;
 document.getElementById('centerBtn').onclick = () => { if (userLat != null && userLon != null) { initMap(); map.setView([userLat, userLon], 13); } else requestLocation(); };
 document.getElementById('search').addEventListener('input', renderAll);
 document.getElementById('sort').addEventListener('change', renderAll);
 document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => { activeTab = btn.dataset.tab; renderTabs(); }));
-
 // Initial load
-document.getElementById('apiKey').value = apiKey || '';
 if (places.length) {
   document.getElementById('subtitle').textContent = `${places.length} saved places already loaded`;
 }
